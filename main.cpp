@@ -66,9 +66,9 @@ NanostackRfPhyMcr20a rf_phy(MCR20A_SPI_MOSI, MCR20A_SPI_MISO, MCR20A_SPI_SCLK, M
 RawSerial output(USBTX, USBRX);
 
 // Status indication
-DigitalOut red_led(LED1);
-DigitalOut green_led(LED2);
-DigitalOut blue_led(LED3);
+DigitalOut red_led(PB_4);
+DigitalOut green_led(PC_8);
+DigitalOut blue_led(PA_15);
 Ticker status_ticker;
 void blinky() {
     green_led = !green_led;
@@ -89,15 +89,12 @@ MbedClient mbed_client(device);
 
 // In case of K64F board , there is button resource available
 // to change resource value and unregister
-#ifdef TARGET_K64F
 // Set up Hardware interrupt button.
-InterruptIn obs_button(SW2);
-InterruptIn unreg_button(SW3);
-#else
+InterruptIn obs_button(PB_5);
+
 //In non K64F boards , set up a timer to simulate updating resource,
 // there is no functionality to unregister.
 Ticker timer;
-#endif
 
 /*
  * Arguments for running "blink" in it's own thread.
@@ -113,6 +110,35 @@ public:
     }
     uint16_t position;
     std::vector<uint32_t> blink_pattern;
+};
+
+
+/*
+ * Name resource to distinguish between different endpoints in connector
+ */
+
+class NameResource{
+public:
+    NameResource(){
+        //Create an object with identifier "NAME"
+        name_object = M2MInterfaceFactory::create_object("NAME");
+        M2MObjectInstance* inst = name_object->create_object_instance();
+        
+        //Give the resource a name AND value of K64F-Atmel-Shield
+        M2MResource* name_str_res = inst->create_static_resource("DeviceName", "Name",
+                                                                 M2MResourceInstance::STRING, (uint8_t*)"CELL-Multitech-Dragonfly", 24, false);
+        
+        //Allow GET requests
+        name_str_res->set_operation(M2MBase::GET_ALLOWED);
+    }
+    ~NameResource() {
+    }
+    
+    M2MObject* get_object() {
+        return name_object;
+    }
+private:
+    M2MObject* name_object;
 };
 
 /*
@@ -261,11 +287,7 @@ public:
 
         // up counter
         counter++;
-#ifdef TARGET_K64F
         printf("handle_button_click, new value of counter is %d\r\n", counter);
-#else
-        printf("simulate button_click, new value of counter is %d\r\n", counter);
-#endif
         // serialize the value of counter as a string, and tell connector
         char buffer[20];
         int size = sprintf(buffer,"%d",counter);
@@ -275,55 +297,6 @@ public:
 private:
     M2MObject* btn_object;
     uint16_t counter;
-};
-
-class BigPayloadResource {
-public:
-    BigPayloadResource() {
-        big_payload = M2MInterfaceFactory::create_object("1000");
-        M2MObjectInstance* payload_inst = big_payload->create_object_instance();
-        M2MResource* payload_res = payload_inst->create_dynamic_resource("1", "BigData",
-            M2MResourceInstance::STRING, true /* observable */);
-        payload_res->set_operation(M2MBase::GET_PUT_ALLOWED);
-        payload_res->set_value((uint8_t*)"0", 1);
-        payload_res->set_incoming_block_message_callback(
-                    incoming_block_message_callback(this, &BigPayloadResource::block_message_received));
-        payload_res->set_outgoing_block_message_callback(
-                    outgoing_block_message_callback(this, &BigPayloadResource::block_message_requested));
-    }
-
-    M2MObject* get_object() {
-        return big_payload;
-    }
-
-    void block_message_received(M2MBlockMessage *argument) {
-        if (argument) {
-            if (M2MBlockMessage::ErrorNone == argument->error_code()) {
-                if (argument->is_last_block()) {
-                    output.printf("Last block received\r\n");
-                }
-                output.printf("Block number: %d\r\n", argument->block_number());
-                // First block received
-                if (argument->block_number() == 0) {
-                    // Store block
-                // More blocks coming
-                } else {
-                    // Store blocks
-                }
-            } else {
-                output.printf("Error when receiving block message!  - EntityTooLarge\r\n");
-            }
-            output.printf("Total message size: %d\r\n", argument->total_message_size());
-        }
-    }
-
-    void block_message_requested(const String& resource, uint8_t *&/*data*/, uint32_t &/*len*/) {
-        output.printf("GET request received for resource: %s\r\n", resource.c_str());
-        // Copy data and length to coap response
-    }
-
-private:
-    M2MObject*  big_payload;
 };
 
 // Network interaction must be performed outside of interrupt context
@@ -398,7 +371,7 @@ Add MBEDTLS_NO_DEFAULT_ENTROPY_SOURCES and MBEDTLS_TEST_NULL_ENTROPY in mbed_app
     network_interface = &eth;
 #elif MBED_CONF_APP_NETWORK_INTERFACE == CELL
     output.printf("Using Cell\r\n");
-    static const char apn[] = "wap.cingular";
+    static const char apn[] = "prepay.tesco-mobile.com";
     connect_success = cell.connect(apn);
     network_interface = &cell;
 #endif
@@ -413,7 +386,8 @@ Add MBEDTLS_NO_DEFAULT_ENTROPY_SOURCES and MBEDTLS_TEST_NULL_ENTROPY in mbed_app
     output.printf("\n\rConnected to Network successfully\r\n");
     } else {
         output.printf("\n\rConnection to Network Failed %d! Exiting application....\r\n", connect_success);
-        return 0;
+        printf ("Restarting Application\r\n");
+        NVIC_SystemReset();
     }
     const char *ip_addr = network_interface->get_ip_address();
     if (ip_addr) {
@@ -425,20 +399,15 @@ Add MBEDTLS_NO_DEFAULT_ENTROPY_SOURCES and MBEDTLS_TEST_NULL_ENTROPY in mbed_app
     // we create our button and LED resources
     ButtonResource button_resource;
     LedResource led_resource;
-    BigPayloadResource big_payload_resource;
+    NameResource name_resource;
 
-#ifdef TARGET_K64F
     // On press of SW3 button on K64F board, example application
     // will call unregister API towards mbed Device Connector
     //unreg_button.fall(&mbed_client,&MbedClient::test_unregister);
-    unreg_button.fall(&unregister);
 
     // Observation Button (SW2) press will send update of endpoint resource values to connector
     obs_button.fall(&button_clicked);
-#else
-    // Send update of endpoint resource values to connector every 15 seconds periodically
-    //timer.attach(&button_clicked, 15.0);
-#endif
+
 
     // Create endpoint interface to manage register and unregister
     mbed_client.create_interface(MBED_SERVER_ADDRESS, network_interface);
@@ -454,7 +423,7 @@ Add MBEDTLS_NO_DEFAULT_ENTROPY_SOURCES and MBEDTLS_TEST_NULL_ENTROPY in mbed_app
     object_list.push_back(device_object);
     object_list.push_back(button_resource.get_object());
     object_list.push_back(led_resource.get_object());
-    object_list.push_back(big_payload_resource.get_object());
+    object_list.push_back(name_resource.get_object());
 
     // Set endpoint registration object
     mbed_client.set_register_object(register_object);
