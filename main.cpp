@@ -66,9 +66,9 @@ NanostackRfPhyMcr20a rf_phy(MCR20A_SPI_MOSI, MCR20A_SPI_MISO, MCR20A_SPI_SCLK, M
 RawSerial output(USBTX, USBRX);
 
 // Status indication
-DigitalOut red_led(PB_4);
-DigitalOut green_led(PC_8);
-DigitalOut blue_led(PA_15);
+DigitalOut red_led(PB_4,1);
+DigitalOut green_led(PA_15,1);
+DigitalOut blue_led(PC_8,1);
 Ticker status_ticker;
 void blinky() {
     green_led = !green_led;
@@ -150,7 +150,7 @@ class LedResource {
 public:
     LedResource() {
         // create ObjectID with metadata tag of '3201', which is 'digital output'
-        led_object = M2MInterfaceFactory::create_object("3201");
+        led_object = M2MInterfaceFactory::create_object("LED");
         M2MObjectInstance* led_inst = led_object->create_object_instance();
 
         // 5853 = Multi-state output
@@ -162,7 +162,7 @@ public:
         pattern_res->set_value((const uint8_t*)"500:500:500:500:500:500:500", 27);
 
         // there's not really an execute LWM2M ID that matches... hmm...
-        M2MResource* led_res = led_inst->create_dynamic_resource("5850", "Blink",
+        M2MResource* led_res = led_inst->create_dynamic_resource("DoBlink", "Blink",
             M2MResourceInstance::OPAQUE, false);
         // we allow executing a function here...
         led_res->set_operation(M2MBase::POST_ALLOWED);
@@ -258,10 +258,10 @@ class ButtonResource {
 public:
     ButtonResource(): counter(0) {
         // create ObjectID with metadata tag of '3200', which is 'digital input'
-        btn_object = M2MInterfaceFactory::create_object("3200");
+        btn_object = M2MInterfaceFactory::create_object("Button");
         M2MObjectInstance* btn_inst = btn_object->create_object_instance();
         // create resource with ID '5501', which is digital input counter
-        M2MResource* btn_res = btn_inst->create_dynamic_resource("5501", "Button",
+        M2MResource* btn_res = btn_inst->create_dynamic_resource("DoButton", "Button",
             M2MResourceInstance::INTEGER, true /* observable */);
         // we can read this value
         btn_res->set_operation(M2MBase::GET_ALLOWED);
@@ -283,7 +283,7 @@ public:
      */
     void handle_button_click() {
         M2MObjectInstance* inst = btn_object->object_instance();
-        M2MResource* res = inst->resource("5501");
+        M2MResource* res = inst->resource("DoButton");
 
         // up counter
         counter++;
