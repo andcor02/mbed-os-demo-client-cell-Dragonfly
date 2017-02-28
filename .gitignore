@@ -27,6 +27,9 @@
 *.x86_64
 *.hex
 
+*.hg/
+*.hgignore
+
 yotta_modules/
 yotta_targets/
 build/
